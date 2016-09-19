@@ -89,7 +89,8 @@ enum DeathKnightSpells
     SPELL_DK_BLOOD_STRIKE_OFF_HAND_R1           = 66215,
     SPELL_DK_RUNIC_RETURN                       = 61258,
     SPELL_DK_WANDERING_PLAGUE_DAMAGE            = 50526,
-    SPELL_DK_DEATH_COIL_R1                      = 47541
+    SPELL_DK_DEATH_COIL_R1                      = 47541,
+    SPELL_DK_DEATH_GRIP_INITIAL                 = 49576
 };
 
 enum DeathKnightSpellIcons
@@ -1189,6 +1190,41 @@ class spell_dk_ghoul_explode : public SpellScriptLoader
         SpellScript* GetSpellScript() const override
         {
             return new spell_dk_ghoul_explode_SpellScript();
+        }
+};
+
+// 62259 - Glyph of Death Grip
+class spell_dk_glyph_of_death_grip : public SpellScriptLoader
+{
+    public:
+        spell_dk_glyph_of_death_grip() : SpellScriptLoader("spell_dk_glyph_of_death_grip") { }
+
+        class spell_dk_glyph_of_death_grip_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_dk_glyph_of_death_grip_AuraScript);
+
+            bool Validate(SpellInfo const* /*spellInfo*/) override
+            {
+                if (!sSpellMgr->GetSpellInfo(SPELL_DK_DEATH_GRIP_INITIAL))
+                    return false;
+                return true;
+            }
+
+            void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+            {
+                PreventDefaultAction();
+                eventInfo.GetActor()->GetSpellHistory()->ResetCooldown(SPELL_DK_DEATH_GRIP_INITIAL, true);
+            }
+
+            void Register() override
+            {
+                OnEffectProc += AuraEffectProcFn(spell_dk_glyph_of_death_grip_AuraScript::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_dk_glyph_of_death_grip_AuraScript();
         }
 };
 
@@ -2946,6 +2982,7 @@ void AddSC_deathknight_spell_scripts()
     new spell_dk_death_rune();
     new spell_dk_death_strike();
     new spell_dk_ghoul_explode();
+    new spell_dk_glyph_of_death_grip();
     new spell_dk_glyph_of_scourge_strike();
     new spell_dk_hungering_cold();
     new spell_dk_icebound_fortitude();
