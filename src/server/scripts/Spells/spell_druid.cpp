@@ -81,7 +81,9 @@ enum DruidSpells
     SPELL_DRUID_BLESSING_OF_ELUNE           = 40446,
     SPELL_DRUID_BLESSING_OF_CENARIUS        = 40452,
     SPELL_DRUID_LANGUISH                    = 71023,
-    SPELL_DRUID_REJUVENATION_T10_PROC       = 70691
+    SPELL_DRUID_REJUVENATION_T10_PROC       = 70691,
+    SPELL_DRUID_BALANCE_T10_BONUS           = 70718,
+    SPELL_DRUID_BALANCE_T10_BONUS_PROC      = 70721
 };
 
 // 1178 - Bear Form (Passive)
@@ -943,7 +945,12 @@ class spell_dru_living_seed : public SpellScriptLoader
             void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
             {
                 PreventDefaultAction();
-                int32 amount = CalculatePct(eventInfo.GetHealInfo()->GetHeal(), aurEff->GetAmount());
+
+                HealInfo* healInfo = eventInfo.GetHealInfo();
+                if (!healInfo || !healInfo->GetHeal())
+                    return;
+
+                int32 amount = CalculatePct(healInfo->GetHeal(), aurEff->GetAmount());
                 GetTarget()->CastCustomSpell(SPELL_DRUID_LIVING_SEED_PROC, SPELLVALUE_BASE_POINT0, amount, eventInfo.GetProcTarget(), true, NULL, aurEff);
             }
 
@@ -1077,6 +1084,43 @@ class spell_dru_moonkin_form_passive : public SpellScriptLoader
         AuraScript* GetAuraScript() const override
         {
             return new spell_dru_moonkin_form_passive_AuraScript();
+        }
+};
+
+// 16864 - Omen of Clarity
+class spell_dru_omen_of_clarity : public SpellScriptLoader
+{
+    public:
+        spell_dru_omen_of_clarity() : SpellScriptLoader("spell_dru_omen_of_clarity") { }
+
+        class spell_dru_omen_of_clarity_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_dru_omen_of_clarity_AuraScript);
+
+            bool Validate(SpellInfo const* /*spellInfo*/) override
+            {
+                if (!sSpellMgr->GetSpellInfo(SPELL_DRUID_BALANCE_T10_BONUS) ||
+                    !sSpellMgr->GetSpellInfo(SPELL_DRUID_BALANCE_T10_BONUS_PROC))
+                    return false;
+                return true;
+            }
+
+            void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+            {
+                Unit* target = GetTarget();
+                if (target->HasAura(SPELL_DRUID_BALANCE_T10_BONUS))
+                    target->CastSpell((Unit*)nullptr, SPELL_DRUID_BALANCE_T10_BONUS_PROC, true, nullptr);
+            }
+
+            void Register() override
+            {
+                OnEffectProc += AuraEffectProcFn(spell_dru_omen_of_clarity_AuraScript::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_dru_omen_of_clarity_AuraScript();
         }
 };
 
@@ -1297,7 +1341,7 @@ class spell_dru_rip : public SpellScriptLoader
         }
 };
 
-// 62606 - Savage Defense
+// 62600 - Savage Defense
 class spell_dru_savage_defense : public SpellScriptLoader
 {
     public:
@@ -1307,37 +1351,24 @@ class spell_dru_savage_defense : public SpellScriptLoader
         {
             PrepareAuraScript(spell_dru_savage_defense_AuraScript);
 
-        public:
-            spell_dru_savage_defense_AuraScript()
+            bool Validate(SpellInfo const* spellInfo) override
             {
-                absorbPct = 0;
-            }
-
-        private:
-            uint32 absorbPct;
-
-            bool Load() override
-            {
-                absorbPct = GetSpellInfo()->Effects[EFFECT_0].CalcValue(GetCaster());
+                if (!sSpellMgr->GetSpellInfo(spellInfo->Effects[EFFECT_0].TriggerSpell))
+                    return false;
                 return true;
             }
 
-            void CalculateAmount(AuraEffect const* /*aurEff*/, int32 & amount, bool & /*canBeRecalculated*/)
+            void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
             {
-                // Set absorbtion amount to unlimited
-                amount = -1;
-            }
-
-            void Absorb(AuraEffect* aurEff, DamageInfo & /*dmgInfo*/, uint32 & absorbAmount)
-            {
-                absorbAmount = uint32(CalculatePct(GetTarget()->GetTotalAttackPowerValue(BASE_ATTACK), absorbPct));
-                aurEff->SetAmount(0);
+                PreventDefaultAction();
+                Unit* caster = eventInfo.GetActor();
+                int32 amount = static_cast<int32>(CalculatePct(caster->GetTotalAttackPowerValue(BASE_ATTACK), aurEff->GetAmount()));
+                caster->CastCustomSpell(GetSpellInfo()->Effects[aurEff->GetEffIndex()].TriggerSpell, SPELLVALUE_BASE_POINT0, amount, (Unit*)nullptr, true);
             }
 
             void Register() override
             {
-                 DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dru_savage_defense_AuraScript::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
-                 OnEffectAbsorb += AuraEffectAbsorbFn(spell_dru_savage_defense_AuraScript::Absorb, EFFECT_0);
+                 OnEffectProc += AuraEffectProcFn(spell_dru_savage_defense_AuraScript::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
             }
         };
 
@@ -2206,6 +2237,7 @@ void AddSC_druid_spell_scripts()
     new spell_dru_living_seed_proc();
     new spell_dru_maim_interrupt();
     new spell_dru_moonkin_form_passive();
+    new spell_dru_omen_of_clarity();
     new spell_dru_owlkin_frenzy();
     new spell_dru_predatory_strikes();
     new spell_dru_primal_tenacity();

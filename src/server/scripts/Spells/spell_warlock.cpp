@@ -37,6 +37,7 @@ enum WarlockSpells
     SPELL_WARLOCK_DEMONIC_EMPOWERMENT_FELGUARD      = 54508,
     SPELL_WARLOCK_DEMONIC_EMPOWERMENT_FELHUNTER     = 54509,
     SPELL_WARLOCK_DEMONIC_EMPOWERMENT_IMP           = 54444,
+    SPELL_WARLOCK_DEMONIC_PACT_PROC                 = 48090,
     SPELL_WARLOCK_FEL_SYNERGY_HEAL                  = 54181,
     SPELL_WARLOCK_GLYPH_OF_SHADOWFLAME              = 63311,
     SPELL_WARLOCK_GLYPH_OF_SIPHON_LIFE              = 63106,
@@ -72,13 +73,15 @@ enum WarlockSpells
     SPELL_REPLENISHMENT                             = 57669,
     SPELL_WARLOCK_SHADOWFLAME                       = 37378,
     SPELL_WARLOCK_FLAMESHADOW                       = 37379,
-    SPELL_WARLOCK_GLYPH_OF_SUCCUBUS                 = 56250
+    SPELL_WARLOCK_GLYPH_OF_SUCCUBUS                 = 56250,
+    SPELL_WARLOCK_IMPROVED_DRAIN_SOUL_PROC          = 18371
 };
 
 enum WarlockSpellIcons
 {
     WARLOCK_ICON_ID_IMPROVED_LIFE_TAP               = 208,
-    WARLOCK_ICON_ID_MANA_FEED                       = 1982
+    WARLOCK_ICON_ID_MANA_FEED                       = 1982,
+    WARLOCK_ICON_ID_DEMONIC_PACT                    = 3220
 };
 
 // -710 - Banish
@@ -261,6 +264,36 @@ class spell_warl_curse_of_doom : public SpellScriptLoader
         AuraScript* GetAuraScript() const override
         {
             return new spell_warl_curse_of_doom_AuraScript();
+        }
+};
+
+class spell_warl_decimation : public SpellScriptLoader
+{
+    public:
+        spell_warl_decimation() : SpellScriptLoader("spell_warl_decimation") { }
+
+        class spell_warl_decimation_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_warl_decimation_AuraScript);
+
+            bool CheckProc(ProcEventInfo& eventInfo)
+            {
+                if (SpellInfo const* spellInfo = eventInfo.GetSpellInfo())
+                    if (eventInfo.GetActionTarget()->HasAuraState(AURA_STATE_HEALTHLESS_35_PERCENT, spellInfo, eventInfo.GetActor()))
+                        return true;
+
+                return false;
+            }
+
+            void Register() override
+            {
+                DoCheckProc += AuraCheckProcFn(spell_warl_decimation_AuraScript::CheckProc);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_warl_decimation_AuraScript();
         }
 };
 
@@ -705,6 +738,44 @@ class spell_warl_health_funnel : public SpellScriptLoader
         }
 };
 
+// -18213 - Improved Drain Soul
+class spell_warl_improved_drain_soul : public SpellScriptLoader
+{
+    public:
+        spell_warl_improved_drain_soul() : SpellScriptLoader("spell_warl_improved_drain_soul") { }
+
+        class spell_warl_improved_drain_soul_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_warl_improved_drain_soul_AuraScript);
+
+            bool Validate(SpellInfo const* /*spellInfo*/) override
+            {
+                if (!sSpellMgr->GetSpellInfo(SPELL_WARLOCK_IMPROVED_DRAIN_SOUL_PROC))
+                    return false;
+                return true;
+            }
+
+            void HandleProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
+            {
+                PreventDefaultAction();
+                
+                Unit* target = GetTarget();
+                int32 bp0 = CalculatePct(target->GetMaxPower(POWER_MANA), GetSpellInfo()->Effects[EFFECT_2].BasePoints);
+                target->CastCustomSpell(SPELL_WARLOCK_IMPROVED_DRAIN_SOUL_PROC, SPELLVALUE_BASE_POINT0, bp0, target, true, nullptr, aurEff);
+            }
+
+            void Register() override
+            {
+                OnEffectProc += AuraEffectProcFn(spell_warl_improved_drain_soul_AuraScript::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_warl_improved_drain_soul_AuraScript();
+        }
+};
+
 // -1454 - Life Tap
 class spell_warl_life_tap : public SpellScriptLoader
 {
@@ -864,6 +935,55 @@ public:
     {
         return new spell_warl_nether_protection_AuraScript();
     }
+};
+
+// 54909, 53646 - Demonic Pact
+class spell_warl_demonic_pact : public SpellScriptLoader
+{
+    public:
+        spell_warl_demonic_pact() : SpellScriptLoader("spell_warl_demonic_pact") { }
+
+        class spell_warl_demonic_pact_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_warl_demonic_pact_AuraScript);
+
+            bool Validate(SpellInfo const* /*spellInfo*/) override
+            {
+                if (!sSpellMgr->GetSpellInfo(SPELL_WARLOCK_DEMONIC_PACT_PROC))
+                    return false;
+                return true;
+            }
+
+            bool CheckProc(ProcEventInfo& eventInfo)
+            {
+                return eventInfo.GetActor() && eventInfo.GetActor()->IsPet();
+            }
+
+            void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+            {
+                PreventDefaultAction();
+
+                if (Unit* owner = eventInfo.GetActor()->GetOwner())
+                {
+                    if (AuraEffect* aurEff = owner->GetDummyAuraEffect(SPELLFAMILY_WARLOCK, WARLOCK_ICON_ID_DEMONIC_PACT, EFFECT_0))
+                    {
+                        int32 bp0 = static_cast<int32>((aurEff->GetAmount() * owner->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_MAGIC) + 100.0f) / 100.0f);
+                        owner->CastCustomSpell(SPELL_WARLOCK_DEMONIC_PACT_PROC, SPELLVALUE_BASE_POINT0, bp0, (Unit*)nullptr, true, nullptr, aurEff);
+                    }
+                }
+            }
+
+            void Register() override
+            {
+                DoCheckProc += AuraCheckProcFn(spell_warl_demonic_pact_AuraScript::CheckProc);
+                OnEffectProc += AuraEffectProcFn(spell_warl_demonic_pact_AuraScript::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_warl_demonic_pact_AuraScript();
+        }
 };
 
 // 18541 - Ritual of Doom Effect
@@ -1349,9 +1469,11 @@ void AddSC_warlock_spell_scripts()
     new spell_warl_banish();
     new spell_warl_create_healthstone();
     new spell_warl_curse_of_doom();
+    new spell_warl_decimation();
     new spell_warl_demonic_circle_summon();
     new spell_warl_demonic_circle_teleport();
     new spell_warl_demonic_empowerment();
+    new spell_warl_demonic_pact();
     new spell_warl_everlasting_affliction();
     new spell_warl_fel_synergy();
     new spell_warl_glyph_of_life_tap();
@@ -1359,6 +1481,7 @@ void AddSC_warlock_spell_scripts()
     new spell_warl_haunt();
     new spell_warl_health_funnel();
     new spell_warl_glyph_of_corruption_nightfall();
+    new spell_warl_improved_drain_soul();
     new spell_warl_life_tap();
     new spell_warl_nether_protection();
     new spell_warl_ritual_of_doom_effect();
