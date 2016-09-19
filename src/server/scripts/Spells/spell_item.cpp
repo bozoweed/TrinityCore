@@ -444,7 +444,11 @@ class spell_item_blessing_of_ancient_kings : public SpellScriptLoader
             {
                 PreventDefaultAction();
 
-                int32 absorb = int32(CalculatePct(eventInfo.GetHealInfo()->GetHeal(), 15.0f));
+                HealInfo* healInfo = eventInfo.GetHealInfo();
+                if (!healInfo || !healInfo->GetHeal())
+                    return;
+
+                int32 absorb = int32(CalculatePct(healInfo->GetHeal(), 15.0f));
                 if (AuraEffect* protEff = eventInfo.GetProcTarget()->GetAuraEffect(SPELL_PROTECTION_OF_ANCIENT_KINGS, 0, eventInfo.GetActor()->GetGUID()))
                 {
                     // The shield can grow to a maximum size of 20,000 damage absorbtion
@@ -1229,6 +1233,39 @@ class spell_item_heartpierce : public SpellScriptLoader
         }
 };
 
+// 40971 - Bonus Healing (Crystal Spire of Karabor)
+class spell_item_crystal_spire_of_karabor : public SpellScriptLoader
+{
+    public:
+        spell_item_crystal_spire_of_karabor() : SpellScriptLoader("spell_item_crystal_spire_of_karabor") { }
+
+        class spell_item_crystal_spire_of_karabor_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_item_crystal_spire_of_karabor_AuraScript);
+
+            bool CheckProc(ProcEventInfo& eventInfo)
+            {
+                int32 pct = GetSpellInfo()->Effects[EFFECT_0].BasePoints;
+                if (HealInfo* healInfo = eventInfo.GetHealInfo())
+                    if (Unit* healTarget = healInfo->GetTarget())
+                        if (healTarget->GetHealth() - healInfo->GetEffectiveHeal() <= healTarget->CountPctFromMaxHealth(pct))
+                            return true;
+
+                return false;
+            }
+
+            void Register() override
+            {
+                DoCheckProc += AuraCheckProcFn(spell_item_crystal_spire_of_karabor_AuraScript::CheckProc);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_item_crystal_spire_of_karabor_AuraScript();
+        }
+};
+
 // http://www.wowhead.com/item=27388 Mr. Pinchy
 // 33060 Make a Wish
 enum MakeAWish
@@ -1494,6 +1531,90 @@ class spell_item_noggenfogger_elixir : public SpellScriptLoader
         SpellScript* GetSpellScript() const override
         {
             return new spell_item_noggenfogger_elixir_SpellScript();
+        }
+};
+
+// 29601 - Enlightenment (Pendant of the Violet Eye)
+class spell_item_pendant_of_the_violet_eye : public SpellScriptLoader
+{
+    public:
+        spell_item_pendant_of_the_violet_eye() : SpellScriptLoader("spell_item_pendant_of_the_violet_eye") { }
+
+        class spell_item_pendant_of_the_violet_eye_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_item_pendant_of_the_violet_eye_AuraScript);
+
+            bool CheckProc(ProcEventInfo& eventInfo)
+            {
+                if (SpellInfo const* spellInfo = eventInfo.GetSpellInfo())
+                    return spellInfo->PowerType == POWER_MANA || (spellInfo->ManaCost != 0 && spellInfo->ManaCostPercentage != 0 && spellInfo->ManaCostPerlevel != 0);
+
+                return false;
+            }
+
+            void Register() override
+            {
+                DoCheckProc += AuraCheckProcFn(spell_item_pendant_of_the_violet_eye_AuraScript::CheckProc);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_item_pendant_of_the_violet_eye_AuraScript();
+        }
+};
+
+enum PersistentShieldMisc
+{
+    SPELL_PERSISTENT_SHIELD_TRIGGERED = 26470
+};
+
+// 26467 - Persistent Shield
+class spell_item_persistent_shield : public SpellScriptLoader
+{
+    public:
+        spell_item_persistent_shield() : SpellScriptLoader("spell_item_persistent_shield") { }
+
+        class spell_item_persistent_shield_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_item_persistent_shield_AuraScript);
+
+            bool Validate(SpellInfo const* /*spellInfo*/) override
+            {
+                if (!sSpellMgr->GetSpellInfo(SPELL_PERSISTENT_SHIELD_TRIGGERED))
+                    return false;
+                return true;
+            }
+
+            bool CheckProc(ProcEventInfo& eventInfo)
+            {
+                return eventInfo.GetHealInfo() && eventInfo.GetHealInfo()->GetHeal();
+            }
+
+            void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+            {
+                Unit* caster = eventInfo.GetActor();
+                Unit* target = eventInfo.GetProcTarget();
+                int32 bp0 = CalculatePct(eventInfo.GetHealInfo()->GetHeal(), 15);
+
+                // Scarab Brooch does not replace stronger shields
+                if (AuraEffect const* shield = target->GetAuraEffect(SPELL_PERSISTENT_SHIELD_TRIGGERED, EFFECT_0, caster->GetGUID()))
+                    if (shield->GetAmount() > bp0)
+                        return;
+
+                caster->CastCustomSpell(SPELL_PERSISTENT_SHIELD_TRIGGERED, SPELLVALUE_BASE_POINT0, bp0, target, true, nullptr, aurEff);
+            }
+
+            void Register() override
+            {
+                DoCheckProc += AuraCheckProcFn(spell_item_persistent_shield_AuraScript::CheckProc);
+                OnEffectProc += AuraEffectProcFn(spell_item_persistent_shield_AuraScript::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_item_persistent_shield_AuraScript();
         }
 };
 
@@ -4235,11 +4356,14 @@ void AddSC_item_spell_scripts()
     new spell_item_healing_touch_refund();
     new spell_item_heartpierce<SPELL_INVIGORATION_ENERGY, SPELL_INVIGORATION_MANA, SPELL_INVIGORATION_RAGE, SPELL_INVIGORATION_RP>("spell_item_heartpierce");
     new spell_item_heartpierce<SPELL_INVIGORATION_ENERGY_HERO, SPELL_INVIGORATION_MANA_HERO, SPELL_INVIGORATION_RAGE_HERO, SPELL_INVIGORATION_RP_HERO>("spell_item_heartpierce_hero");
+    new spell_item_crystal_spire_of_karabor();
     new spell_item_make_a_wish();
     new spell_item_mingos_fortune_generator();
     new spell_item_necrotic_touch();
     new spell_item_net_o_matic();
     new spell_item_noggenfogger_elixir();
+    new spell_item_pendant_of_the_violet_eye();
+    new spell_item_persistent_shield();
     new spell_item_pet_healing();
     new spell_item_piccolo_of_the_flaming_fire();
     new spell_item_savory_deviate_delight();

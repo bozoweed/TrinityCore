@@ -1226,6 +1226,41 @@ class spell_pal_improved_aura_effect : public SpellScriptLoader
         }
 };
 
+// -20234 - Improved Lay on Hands
+class spell_pal_improved_lay_of_hands : public SpellScriptLoader
+{
+    public:
+        spell_pal_improved_lay_of_hands() : SpellScriptLoader("spell_pal_improved_lay_of_hands") { }
+
+        class spell_pal_improved_lay_of_hands_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_pal_improved_lay_of_hands_AuraScript);
+
+            bool Validate(SpellInfo const* spellInfo) override
+            {
+                if (!sSpellMgr->GetSpellInfo(spellInfo->Effects[EFFECT_0].TriggerSpell))
+                    return false;
+                return true;
+            }
+
+            void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+            {
+                PreventDefaultAction();
+                eventInfo.GetActionTarget()->CastSpell(eventInfo.GetActionTarget(), GetSpellInfo()->Effects[EFFECT_0].TriggerSpell, true, nullptr, aurEff, GetTarget()->GetGUID());
+            }
+
+            void Register() override
+            {
+                OnEffectProc += AuraEffectProcFn(spell_pal_improved_lay_of_hands_AuraScript::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_pal_improved_lay_of_hands_AuraScript();
+        }
+};
+
 // -53569 - Infusion of Light
 class spell_pal_infusion_of_light : public SpellScriptLoader
 {
@@ -1254,13 +1289,17 @@ class spell_pal_infusion_of_light : public SpellScriptLoader
                     {
                         PreventDefaultAction();
 
+                        HealInfo* healInfo = eventInfo.GetHealInfo();
+                        if (!healInfo || !healInfo->GetHeal())
+                            return;
+
                         Unit* procTarget = eventInfo.GetActionTarget();
                         if (procTarget && procTarget->HasAura(SPELL_PALADIN_SACRED_SHIELD))
                         {
                             Unit* target = GetTarget();
                             int32 duration = sSpellMgr->AssertSpellInfo(SPELL_PALADIN_FLASH_OF_LIGHT_PROC)->GetMaxDuration() / 1000;
                             int32 pct = GetSpellInfo()->Effects[EFFECT_2].CalcValue();
-                            int32 bp0 = CalculatePct(eventInfo.GetHealInfo()->GetHeal() / duration, pct);
+                            int32 bp0 = CalculatePct(healInfo->GetHeal() / duration, pct);
 
                             // Item - Paladin T9 Holy 4P Bonus
                             if (AuraEffect const* aurEff = target->GetAuraEffect(SPELL_PALADIN_T9_HOLY_4P_BONUS, 0))
@@ -1723,8 +1762,12 @@ class spell_pal_light_s_beacon : public SpellScriptLoader
                 if (!procSpell)
                     return;
 
+                HealInfo* healInfo = eventInfo.GetHealInfo();
+                if (!healInfo || !healInfo->GetHeal())
+                    return;
+
                 uint32 healSpellId = procSpell->IsRankOf(sSpellMgr->AssertSpellInfo(SPELL_PALADIN_HOLY_LIGHT)) ? SPELL_PALADIN_BEACON_OF_LIGHT_HEAL_1 : SPELL_PALADIN_BEACON_OF_LIGHT_HEAL_3;
-                uint32 heal = CalculatePct(eventInfo.GetHealInfo()->GetHeal(), aurEff->GetAmount());
+                uint32 heal = CalculatePct(healInfo->GetHeal(), aurEff->GetAmount());
 
                 Unit* beaconTarget = GetCaster();
                 if (!beaconTarget || !beaconTarget->HasAura(SPELL_PALADIN_BEACON_OF_LIGHT, eventInfo.GetActor()->GetGUID()))
@@ -2334,6 +2377,7 @@ void AddSC_paladin_spell_scripts()
     new spell_pal_improved_aura_effect("spell_pal_improved_concentraction_aura_effect");
     new spell_pal_improved_aura_effect("spell_pal_improved_devotion_aura_effect");
     new spell_pal_improved_aura_effect("spell_pal_sanctified_retribution_effect");
+    new spell_pal_improved_lay_of_hands();
     new spell_pal_infusion_of_light();
     new spell_pal_item_healing_discount();
     new spell_pal_item_t6_trinket();

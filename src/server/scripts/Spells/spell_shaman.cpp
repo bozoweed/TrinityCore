@@ -81,6 +81,7 @@ enum ShamanSpells
     SPELL_SHAMAN_LIGHTNING_BOLT_OVERLOAD_R1     = 45284,
     SPELL_SHAMAN_CHAIN_LIGHTNING_OVERLOAD_R1    = 45297,
     SPELL_SHAMAN_LIGHTNING_SHIELD_DAMAGE_R1     = 26364,
+    SPELL_SHAMAN_SHAMANISTIC_RAGE_PROC          = 30824,
     SPELL_SHAMAN_MAELSTROM_POWER                = 70831,
     SPELL_SHAMAN_T10_ENHANCEMENT_4P_BONUS       = 70832
 };
@@ -229,6 +230,37 @@ class spell_sha_astral_shift : public SpellScriptLoader
         AuraScript* GetAuraScript() const override
         {
             return new spell_sha_astral_shift_AuraScript();
+        }
+};
+
+// -51474 - Astral Shift aura
+class spell_sha_astral_shift_aura : public SpellScriptLoader
+{
+    public:
+        spell_sha_astral_shift_aura() : SpellScriptLoader("spell_sha_astral_shift_aura") { }
+
+        class spell_sha_astral_shift_aura_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_sha_astral_shift_aura_AuraScript);
+
+            bool CheckProc(ProcEventInfo& eventInfo)
+            {
+                if (SpellInfo const* spellInfo = eventInfo.GetSpellInfo())
+                    if (spellInfo->GetAllEffectsMechanicMask() & ((1 << MECHANIC_SILENCE) | (1 << MECHANIC_STUN) | (1 << MECHANIC_FEAR)))
+                        return true;
+
+                return false;
+            }
+
+            void Register() override
+            {
+                DoCheckProc += AuraCheckProcFn(spell_sha_astral_shift_aura_AuraScript::CheckProc);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_sha_astral_shift_aura_AuraScript();
         }
 };
 
@@ -1627,6 +1659,44 @@ class spell_sha_sentry_totem : public SpellScriptLoader
         }
 };
 
+// 30823 - Shamanistic Rage
+class spell_sha_shamanistic_rage : public SpellScriptLoader
+{
+    public:
+        spell_sha_shamanistic_rage() : SpellScriptLoader("spell_sha_shamanistic_rage") { }
+
+        class spell_sha_shamanistic_rage_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_sha_shamanistic_rage_AuraScript);
+
+            bool Validate(SpellInfo const* /*spellInfo*/) override
+            {
+                if (!sSpellMgr->GetSpellInfo(SPELL_SHAMAN_SHAMANISTIC_RAGE_PROC))
+                    return false;
+                return true;
+            }
+
+            void HandleProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
+            {
+                PreventDefaultAction();
+
+                Unit* target = GetTarget();
+                int32 amount = CalculatePct(static_cast<int32>(target->GetTotalAttackPowerValue(BASE_ATTACK)), aurEff->GetAmount());
+                target->CastCustomSpell(SPELL_SHAMAN_SHAMANISTIC_RAGE_PROC, SPELLVALUE_BASE_POINT0, amount, target, true, nullptr, aurEff);
+            }
+
+            void Register() override
+            {
+                OnEffectProc += AuraEffectProcFn(spell_sha_shamanistic_rage_AuraScript::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_sha_shamanistic_rage_AuraScript();
+        }
+};
+
 // 58877 - Spirit Hunt
 class spell_sha_spirit_hunt : public SpellScriptLoader
 {
@@ -2182,6 +2252,7 @@ void AddSC_shaman_spell_scripts()
     new spell_sha_ancestral_awakening();
     new spell_sha_ancestral_awakening_proc();
     new spell_sha_astral_shift();
+    new spell_sha_astral_shift_aura();
     new spell_sha_bloodlust();
     new spell_sha_chain_heal();
     new spell_sha_cleansing_totem_pulse();
@@ -2210,6 +2281,7 @@ void AddSC_shaman_spell_scripts()
     new spell_sha_mana_tide_totem();
     new spell_sha_nature_guardian();
     new spell_sha_sentry_totem();
+    new spell_sha_shamanistic_rage();
     new spell_sha_spirit_hunt();
     new spell_sha_static_shock();
     new spell_sha_tidal_force_dummy();

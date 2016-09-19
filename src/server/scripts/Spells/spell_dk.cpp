@@ -100,7 +100,8 @@ enum DeathKnightSpellIcons
 enum Misc
 {
     NPC_DK_GHOUL                                = 26125,
-    NPC_DK_DANCING_RUNE_WEAPON                  = 27893
+    NPC_DK_DANCING_RUNE_WEAPON                  = 27893,
+    SPELL_CATEGORY_HOWLING_BLAST                = 1248
 };
 
 // -49200 - Acclimation
@@ -407,6 +408,38 @@ class spell_dk_anti_magic_zone : public SpellScriptLoader
         AuraScript* GetAuraScript() const override
         {
             return new spell_dk_anti_magic_zone_AuraScript();
+        }
+};
+
+// -49182 - Blade Barrier
+class spell_dk_blade_barrier : public SpellScriptLoader
+{
+    public:
+        spell_dk_blade_barrier() : SpellScriptLoader("spell_dk_blade_barrier") { }
+
+        class spell_dk_blade_barrier_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_dk_blade_barrier_AuraScript);
+
+            bool CheckProc(ProcEventInfo& eventInfo)
+            {
+                if (eventInfo.GetSpellInfo() != nullptr)
+                    if (Player* player = eventInfo.GetActor()->ToPlayer())
+                        if (player->getClass() == CLASS_DEATH_KNIGHT && player->IsBaseRuneSlotsOnCooldown(RUNE_BLOOD))
+                            return true;
+
+                return false;
+            }
+
+            void Register() override
+            {
+                DoCheckProc += AuraCheckProcFn(spell_dk_blade_barrier_AuraScript::CheckProc);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_dk_blade_barrier_AuraScript();
         }
 };
 
@@ -1962,6 +1995,43 @@ class spell_dk_raise_dead : public SpellScriptLoader
         }
 };
 
+// -49188 - Rime
+class spell_dk_rime : public SpellScriptLoader
+{
+    public:
+        spell_dk_rime() : SpellScriptLoader("spell_dk_rime") { }
+
+        class spell_dk_blade_barrier_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_dk_blade_barrier_AuraScript);
+
+            bool CheckProc(ProcEventInfo& /*eventInfo*/)
+            {
+                return GetTarget()->GetTypeId() == TYPEID_PLAYER;
+            }
+
+            void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+            {
+                GetTarget()->GetSpellHistory()->ResetCooldowns([](SpellHistory::CooldownStorageType::iterator itr) -> bool
+                {
+                    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(itr->first);
+                    return spellInfo && spellInfo->GetCategory() == SPELL_CATEGORY_HOWLING_BLAST;
+                }, true);
+            }
+
+            void Register() override
+            {
+                DoCheckProc += AuraCheckProcFn(spell_dk_blade_barrier_AuraScript::CheckProc);
+                OnEffectProc += AuraEffectProcFn(spell_dk_blade_barrier_AuraScript::HandleProc, EFFECT_1, SPELL_AURA_PROC_TRIGGER_SPELL);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_dk_blade_barrier_AuraScript();
+        }
+};
+
 // 59754 Rune Tap - Party
 class spell_dk_rune_tap_party : public SpellScriptLoader
 {
@@ -2861,6 +2931,7 @@ void AddSC_deathknight_spell_scripts()
     new spell_dk_anti_magic_shell_raid();
     new spell_dk_anti_magic_shell_self();
     new spell_dk_anti_magic_zone();
+    new spell_dk_blade_barrier();
     new spell_dk_blood_boil();
     new spell_dk_blood_gorged();
     new spell_dk_bloodworms();
@@ -2888,6 +2959,7 @@ void AddSC_deathknight_spell_scripts()
     new spell_dk_pestilence();
     new spell_dk_presence();
     new spell_dk_raise_dead();
+    new spell_dk_rime();
     new spell_dk_rune_tap_party();
     new spell_dk_scent_of_blood();
     new spell_dk_scourge_strike();
