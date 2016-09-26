@@ -113,7 +113,7 @@ static uint32 copseReclaimDelay[MAX_DEATH_COUNT] = { 30, 60, 120 };
 
 uint64 const MAX_MONEY_AMOUNT = 9999999999ULL;
 
-Player::Player(WorldSession* session) : Unit(true)
+Player::Player(WorldSession* session) : Unit(true), m_sceneMgr(this)
 {
     m_speakTime = 0;
     m_speakCount = 0;
@@ -1843,7 +1843,7 @@ void Player::Regenerate(Powers power)
     if (HasAuraTypeWithValue(SPELL_AURA_PREVENT_REGENERATE_POWER, power))
         return;
 
-    uint32 curValue = GetPower(power);
+    int32 curValue = GetPower(power);
 
     // TODO: updating haste should update UNIT_FIELD_POWER_REGEN_FLAT_MODIFIER for certain power types
     PowerTypeEntry const* powerType = sDB2Manager.GetPowerTypeEntry(power);
@@ -1860,6 +1860,32 @@ void Player::Regenerate(Powers power)
     }
     else
         addvalue = (powerType->RegenerationCombat + GetFloatValue(UNIT_FIELD_POWER_REGEN_INTERRUPTED_FLAT_MODIFIER + powerIndex)) * 0.001f * m_regenTimer;
+
+    static Rates const RatesForPower[MAX_POWERS] =
+    {
+        RATE_POWER_MANA,
+        RATE_POWER_RAGE_LOSS,
+        RATE_POWER_FOCUS,
+        RATE_POWER_ENERGY,
+        RATE_POWER_COMBO_POINTS_LOSS,
+        MAX_RATES, // runes
+        RATE_POWER_RUNIC_POWER_LOSS,
+        RATE_POWER_SOUL_SHARDS,
+        RATE_POWER_LUNAR_POWER,
+        RATE_POWER_HOLY_POWER,
+        MAX_RATES, // alternate
+        RATE_POWER_MAELSTROM,
+        RATE_POWER_CHI,
+        RATE_POWER_INSANITY,
+        MAX_RATES, // burning embers, unused
+        MAX_RATES, // demonic fury, unused
+        RATE_POWER_ARCANE_CHARGES,
+        RATE_POWER_FURY,
+        RATE_POWER_PAIN,
+    };
+
+    if (RatesForPower[power] != MAX_RATES)
+        addvalue *= sWorld->getRate(RatesForPower[power]);
 
     // Mana regen calculated in Player::UpdateManaRegen()
     if (power != POWER_MANA)
@@ -1889,7 +1915,7 @@ void Player::Regenerate(Powers power)
         return;
 
     addvalue += m_powerFraction[powerIndex];
-    uint32 integerValue = uint32(std::fabs(addvalue));
+    int32 integerValue = int32(std::fabs(addvalue));
 
     if (powerType->RegenerationCenter)
     {
@@ -1909,7 +1935,7 @@ void Player::Regenerate(Powers power)
 
     if (addvalue < 0.0f)
     {
-        if (curValue > integerValue + minPower)
+        if (curValue > minPower + integerValue)
         {
             curValue -= integerValue;
             m_powerFraction[powerIndex] = addvalue + integerValue;
