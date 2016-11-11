@@ -2781,7 +2781,12 @@ void ObjectMgr::LoadItemTemplates()
                         if ((1 << (specialization->ClassID - 1)) & sparse->AllowableClass)
                         {
                             itemTemplate.ItemSpecClassMask |= 1 << (specialization->ClassID - 1);
-                            itemTemplate.Specializations[itemSpec->MaxLevel > 40].set(ItemTemplate::CalculateItemSpecBit(specialization));
+                            std::size_t specBit = ItemTemplate::CalculateItemSpecBit(specialization);
+                            itemTemplate.Specializations[0].set(specBit);
+                            if (itemSpec->MaxLevel > 40)
+                                itemTemplate.Specializations[1].set(specBit);
+                            if (itemSpec->MaxLevel >= 110)
+                                itemTemplate.Specializations[2].set(specBit);
                         }
                     }
                 }
@@ -3894,8 +3899,8 @@ void ObjectMgr::LoadQuests()
     }
 
     // Load `quest_objectives`
-    //                                   0   1        2     3             4         5       6      7                  8
-    result = WorldDatabase.Query("SELECT ID, QuestID, Type, StorageIndex, ObjectID, Amount, Flags, ProgressBarWeight, Description FROM quest_objectives ORDER BY StorageIndex ASC");
+    //                                   0   1        2     3             4         5       6      7       8                  9
+    result = WorldDatabase.Query("SELECT ID, QuestID, Type, StorageIndex, ObjectID, Amount, Flags, Flags2, ProgressBarWeight, Description FROM quest_objectives ORDER BY StorageIndex ASC");
 
     if (!result)
     {
