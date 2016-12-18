@@ -21,7 +21,7 @@
 #include "DB2Store.h"
 #include "DB2Structure.h"
 #include "SharedDefines.h"
-#include <regex>
+#include "Regex.h"
 
 TC_GAME_API extern DB2Storage<AchievementEntry>                     sAchievementStore;
 TC_GAME_API extern DB2Storage<AnimKitEntry>                         sAnimKitStore;
@@ -124,6 +124,7 @@ TC_GAME_API extern DB2Storage<MailTemplateEntry>                    sMailTemplat
 TC_GAME_API extern DB2Storage<MapEntry>                             sMapStore;
 TC_GAME_API extern DB2Storage<ModifierTreeEntry>                    sModifierTreeStore;
 TC_GAME_API extern DB2Storage<MountCapabilityEntry>                 sMountCapabilityStore;
+TC_GAME_API extern DB2Storage<MountEntry>                           sMountStore;
 TC_GAME_API extern DB2Storage<MovieEntry>                           sMovieStore;
 TC_GAME_API extern DB2Storage<OverrideSpellDataEntry>               sOverrideSpellDataStore;
 TC_GAME_API extern DB2Storage<PhaseEntry>                           sPhaseStore;
@@ -258,7 +259,7 @@ public:
     typedef std::set<MountTypeXCapabilityEntry const*, MountTypeXCapabilityEntryComparator> MountTypeXCapabilitySet;
     typedef std::unordered_map<uint32, MountTypeXCapabilitySet> MountCapabilitiesByTypeContainer;
     typedef std::unordered_map<uint32, std::array<std::vector<NameGenEntry const*>, 2>> NameGenContainer;
-    typedef std::array<std::vector<std::wregex>, TOTAL_LOCALES + 1> NameValidationRegexContainer;
+    typedef std::array<std::vector<Trinity::wregex>, TOTAL_LOCALES + 1> NameValidationRegexContainer;
     typedef std::unordered_map<uint32, std::set<uint32>> PhaseGroupContainer;
     typedef std::array<PowerTypeEntry const*, MAX_POWERS> PowerTypesContainer;
     typedef std::unordered_map<uint32, std::pair<std::vector<QuestPackageItemEntry const*>, std::vector<QuestPackageItemEntry const*>>> QuestPackageItemContainer;

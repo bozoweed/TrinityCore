@@ -43,7 +43,6 @@
 #include "OutdoorPvPMgr.h"
 #include "Unit.h"
 #include "BattlefieldMgr.h"
-#include "GameObjectPackets.h"
 #include "MiscPackets.h"
 #include "InstanceScenario.h"
 
@@ -2182,13 +2181,6 @@ void WorldObject::SendMessageToSet(WorldPacket const* data, Player const* skippe
     VisitNearbyWorldObject(GetVisibilityRange(), notifier);
 }
 
-void WorldObject::SendObjectDeSpawnAnim(ObjectGuid guid)
-{
-    WorldPackets::GameObject::GameObjectDespawn packet;
-    packet.ObjectGUID = guid;
-    SendMessageToSet(packet.Write(), true);
-}
-
 void WorldObject::SetMap(Map* map)
 {
     ASSERT(map);
@@ -2986,23 +2978,20 @@ bool WorldObject::IsInPhase(WorldObject const* obj) const
     return Trinity::Containers::Intersects(_phases.begin(), _phases.end(), obj->GetPhases().begin(), obj->GetPhases().end());
 }
 
-void WorldObject::PlayDistanceSound(uint32 sound_id, Player* target /*= NULL*/)
+void WorldObject::PlayDistanceSound(uint32 soundId, Player* target /*= nullptr*/)
 {
-    WorldPacket data(SMSG_PLAY_SPEAKERBOT_SOUND, 4 + 8);
-    data << uint32(sound_id);
-    data << GetGUID();
     if (target)
-        target->SendDirectMessage(&data);
+        target->SendDirectMessage(WorldPackets::Misc::PlaySpeakerbotSound(GetGUID(), soundId).Write());
     else
-        SendMessageToSet(&data, true);
+        SendMessageToSet(WorldPackets::Misc::PlaySpeakerbotSound(GetGUID(), soundId).Write(), true);
 }
 
-void WorldObject::PlayDirectSound(uint32 sound_id, Player* target /*= NULL*/)
+void WorldObject::PlayDirectSound(uint32 soundId, Player* target /*= nullptr*/)
 {
     if (target)
-        target->SendDirectMessage(WorldPackets::Misc::PlaySound(GetGUID(), sound_id).Write());
+        target->SendDirectMessage(WorldPackets::Misc::PlaySound(GetGUID(), soundId).Write());
     else
-        SendMessageToSet(WorldPackets::Misc::PlaySound(GetGUID(), sound_id).Write(), true);
+        SendMessageToSet(WorldPackets::Misc::PlaySound(GetGUID(), soundId).Write(), true);
 }
 
 void WorldObject::DestroyForNearbyPlayers()
