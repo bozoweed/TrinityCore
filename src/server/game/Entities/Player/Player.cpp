@@ -33,6 +33,7 @@
 #include "Channel.h"
 #include "ChannelMgr.h"
 #include "CharacterDatabaseCleaner.h"
+#include "CharacterTemplateDataStore.h"
 #include "CharacterPackets.h"
 #include "Chat.h"
 #include "ChatPackets.h"
@@ -486,6 +487,20 @@ bool Player::Create(ObjectGuid::LowType guidlow, WorldPackets::Character::Charac
         start_level = sWorld->getIntConfig(CONFIG_START_HEROIC_PLAYER_LEVEL);
     else if (getClass() == CLASS_DEMON_HUNTER)
         start_level = sWorld->getIntConfig(CONFIG_START_DEMON_HUNTER_PLAYER_LEVEL);
+
+    if (createInfo->TemplateSet)
+    {
+        if (m_session->HasPermission(rbac::RBAC_PERM_USE_CHARACTER_TEMPLATES))
+        {
+            if (CharacterTemplate const* charTemplate = sCharacterTemplateDataStore->GetCharacterTemplate(*createInfo->TemplateSet))
+            {
+                if (charTemplate->Level > start_level)
+                    start_level = charTemplate->Level;
+            }
+        }
+        else
+            TC_LOG_WARN("cheat", "Account: %u (IP: %s) tried to use a character template without given permission. Possible cheating attempt.", m_session->GetAccountId(), m_session->GetRemoteAddress().c_str());
+    }
 
     if (m_session->HasPermission(rbac::RBAC_PERM_USE_START_GM_LEVEL))
     {
@@ -1605,6 +1620,9 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
 
             // remove all dyn objects
             RemoveAllDynObjects();
+
+            // remove all areatriggers entities
+            RemoveAllAreaTriggers();
 
             // stop spellcasting
             // not attempt interrupt teleportation spell at caster teleport
@@ -2774,15 +2792,9 @@ void Player::AddNewMailDeliverTime(time_t deliver_time)
 
 void DeleteSpellFromAllPlayers(uint32 spellId)
 {
-    CharacterDatabaseStatements stmts[2] = {CHAR_DEL_INVALID_SPELL_SPELLS, CHAR_DEL_INVALID_SPELL_TALENTS};
-    for (uint8 i = 0; i < 2; i++)
-    {
-        PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(stmts[i]);
-
-        stmt->setUInt32(0, spellId);
-
-        CharacterDatabase.Execute(stmt);
-    }
+    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_INVALID_SPELL_SPELLS);
+    stmt->setUInt32(0, spellId);
+    CharacterDatabase.Execute(stmt);
 }
 
 bool Player::AddTalent(TalentEntry const* talent, uint8 spec, bool learning)
@@ -2790,31 +2802,13 @@ bool Player::AddTalent(TalentEntry const* talent, uint8 spec, bool learning)
     SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(talent->SpellID);
     if (!spellInfo)
     {
-        // do character spell book cleanup (all characters)
-        if (!IsInWorld() && !learning)                       // spell load case
-        {
-            TC_LOG_ERROR("spells", "Player::AddTalent: Spell (ID: %u) does not exist. Deleting for all characters in `character_spell` and `character_talent`.", talent->SpellID);
-
-            DeleteSpellFromAllPlayers(talent->SpellID);
-        }
-        else
-            TC_LOG_ERROR("spells", "Player::AddTalent: Spell (ID: %u) does not exist", talent->SpellID);
-
+        TC_LOG_ERROR("spells", "Player::AddTalent: Spell (ID: %u) does not exist.", talent->SpellID);
         return false;
     }
 
     if (!SpellMgr::IsSpellValid(spellInfo, this, false))
     {
-        // do character spell book cleanup (all characters)
-        if (!IsInWorld() && !learning)                       // spell load case
-        {
-            TC_LOG_ERROR("spells", "Player::AddTalent: Spell (ID: %u) is invalid. Deleting for all characters in `character_spell` and `character_talent`.", talent->SpellID);
-
-            DeleteSpellFromAllPlayers(talent->SpellID);
-        }
-        else
-            TC_LOG_ERROR("spells", "Player::AddTalent: Spell (ID: %u) is invalid", talent->SpellID);
-
+        TC_LOG_ERROR("spells", "Player::AddTalent: Spell (ID: %u) is invalid", talent->SpellID);
         return false;
     }
 
@@ -2860,7 +2854,7 @@ bool Player::AddSpell(uint32 spellId, bool active, bool learning, bool dependent
         // do character spell book cleanup (all characters)
         if (!IsInWorld() && !learning)                       // spell load case
         {
-            TC_LOG_ERROR("spells", "Player::AddSpell: Spell (ID: %u) does not exist. deleting for all characters in `character_spell` and `character_talent`.", spellId);
+            TC_LOG_ERROR("spells", "Player::AddSpell: Spell (ID: %u) does not exist. deleting for all characters in `character_spell`.", spellId);
 
             DeleteSpellFromAllPlayers(spellId);
         }
@@ -2875,7 +2869,7 @@ bool Player::AddSpell(uint32 spellId, bool active, bool learning, bool dependent
         // do character spell book cleanup (all characters)
         if (!IsInWorld() && !learning)                       // spell load case
         {
-            TC_LOG_ERROR("spells", "Player::AddSpell: Spell (ID: %u) is invalid. deleting for all characters in `character_spell` and `character_talent`.", spellId);
+            TC_LOG_ERROR("spells", "Player::AddSpell: Spell (ID: %u) is invalid. deleting for all characters in `character_spell`.", spellId);
 
             DeleteSpellFromAllPlayers(spellId);
         }
@@ -5248,7 +5242,7 @@ bool Player::UpdateCraftSkill(uint32 spellid)
                     LearnSpell(discoveredSpell, false);
             }
 
-            uint32 craft_skill_gain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_CRAFTING);
+            uint32 craft_skill_gain = _spell_idx->second->NumSkillUps * sWorld->getIntConfig(CONFIG_SKILL_GAIN_CRAFTING);
 
             return UpdateSkillPro(_spell_idx->second->SkillLine, SkillGainChance(SkillValue,
                 _spell_idx->second->TrivialSkillLineRankHigh,
@@ -7170,7 +7164,31 @@ void Player::_ApplyItemBonuses(Item* item, uint8 slot, bool apply)
     uint32 itemLevel = item->GetItemLevel(this);
     float combatRatingMultiplier = 1.0f;
     if (GtCombatRatingsMultByILvl const* ratingMult = sCombatRatingsMultByILvlGameTable.GetRow(itemLevel))
-        combatRatingMultiplier = ratingMult->RatingMultiplier;
+    {
+        switch (proto->GetInventoryType())
+        {
+            case INVTYPE_WEAPON:
+            case INVTYPE_SHIELD:
+            case INVTYPE_RANGED:
+            case INVTYPE_2HWEAPON:
+            case INVTYPE_WEAPONMAINHAND:
+            case INVTYPE_WEAPONOFFHAND:
+            case INVTYPE_HOLDABLE:
+            case INVTYPE_RANGEDRIGHT:
+                combatRatingMultiplier = ratingMult->WeaponMultiplier;
+                break;
+            case INVTYPE_TRINKET:
+                combatRatingMultiplier = ratingMult->TrinketMultiplier;
+                break;
+            case INVTYPE_NECK:
+            case INVTYPE_FINGER:
+                combatRatingMultiplier = ratingMult->JewelryMultiplier;
+                break;
+            default:
+                combatRatingMultiplier = ratingMult->ArmorMultiplier;
+                break;
+        }
+    }
 
     // req. check at equip, but allow use for extended range if range limit max level, set proper level
     for (uint8 i = 0; i < MAX_ITEM_PROTO_STATS; ++i)
@@ -17887,6 +17905,8 @@ bool Player::isAllowedToLoot(const Creature* creature)
     const Loot* loot = &creature->loot;
     if (loot->isLooted()) // nothing to loot or everything looted.
         return false;
+    if (!loot->hasItemForAll() && !loot->hasItemFor(this)) // no loot in creature for this player
+        return false;
 
     if (loot->loot_type == LOOT_SKINNING)
         return creature->GetSkinner() == GetGUID();
@@ -21212,14 +21232,18 @@ void Player::AddSpellMod(SpellModifier* mod, bool apply)
 {
     TC_LOG_DEBUG("spells", "Player::AddSpellMod: Player '%s' (%s), SpellID: %d", GetName().c_str(), GetGUID().ToString().c_str(), mod->spellId);
 
+    /// First, manipulate our spellmodifier container
+    if (apply)
+        m_spellMods[mod->op][mod->type].push_back(mod);
+    else
+        m_spellMods[mod->op][mod->type].remove(mod);
+
+    /// Now, send spellmodifier packet
     if (!IsLoading())
     {
         OpcodeServer opcode = (mod->type == SPELLMOD_FLAT) ? SMSG_SET_FLAT_SPELL_MODIFIER : SMSG_SET_PCT_SPELL_MODIFIER;
 
         WorldPackets::Spells::SetSpellModifier packet(opcode);
-
-        int i = 0;
-        flag128 _mask;
 
         /// @todo Implement sending of bulk modifiers instead of single
         packet.Modifiers.resize(1);
@@ -21229,32 +21253,25 @@ void Player::AddSpellMod(SpellModifier* mod, bool apply)
 
         for (int eff = 0; eff < 128; ++eff)
         {
-            if (eff != 0 && (eff % 32) == 0)
-                _mask[i++] = 0;
-
-            _mask[i] = uint32(1) << (eff - (32 * i));
-            if (mod->mask & _mask)
+            flag128 mask;
+            mask[eff / 32] = 1u << (eff % 32);
+            if (mod->mask & mask)
             {
                 WorldPackets::Spells::SpellModifierData modData;
 
                 if (mod->type == SPELLMOD_FLAT)
                 {
+                    modData.ModifierValue = 0.0f;
                     for (SpellModList::iterator itr = m_spellMods[mod->op][SPELLMOD_FLAT].begin(); itr != m_spellMods[mod->op][SPELLMOD_FLAT].end(); ++itr)
-                        if (*itr != mod && (*itr)->mask & _mask)
+                        if ((*itr)->mask & mask)
                             modData.ModifierValue += (*itr)->value;
-
-                    if (apply)
-                        modData.ModifierValue += mod->value;
                 }
                 else
                 {
                     modData.ModifierValue = 1.0f;
                     for (SpellModList::iterator itr = m_spellMods[mod->op][SPELLMOD_PCT].begin(); itr != m_spellMods[mod->op][SPELLMOD_PCT].end(); ++itr)
-                        if (*itr != mod && (*itr)->mask & _mask)
-                            modData.ModifierValue *= CalculatePct(1.0f, (*itr)->value);
-
-                    if (apply)
-                        modData.ModifierValue *= CalculatePct(1.0f, mod->value);
+                        if ((*itr)->mask & mask)
+                            modData.ModifierValue *= 1.0f + CalculatePct(1.0f, (*itr)->value);
                 }
 
                 modData.ClassIndex = eff;
@@ -21266,11 +21283,9 @@ void Player::AddSpellMod(SpellModifier* mod, bool apply)
         SendDirectMessage(packet.Write());
     }
 
-    if (apply)
-        m_spellMods[mod->op][mod->type].push_back(mod);
-    else
+    /// Finally, delete spellmodifier on remove
+    if (!apply)
     {
-        m_spellMods[mod->op][mod->type].remove(mod);
         // mods bound to aura will be removed in AuraEffect::~AuraEffect
         if (!mod->ownerAura)
             delete mod;
@@ -24868,6 +24883,7 @@ void Player::SetViewpoint(WorldObject* target, bool apply)
 
         if (target->isType(TYPEMASK_UNIT) && target != GetVehicleBase())
             static_cast<Unit*>(target)->AddPlayerToVision(this);
+        SetSeer(target);
     }
     else
     {
@@ -24883,7 +24899,7 @@ void Player::SetViewpoint(WorldObject* target, bool apply)
             static_cast<Unit*>(target)->RemovePlayerFromVision(this);
 
         //must immediately set seer back otherwise may crash
-        m_seer = this;
+        SetSeer(this);
 
         //WorldPacket data(SMSG_CLEAR_FAR_SIGHT_IMMEDIATE, 0);
         //GetSession()->SendPacket(&data);
@@ -26076,7 +26092,7 @@ void Player::_SaveGlyphs(SQLTransaction& trans) const
 
 void Player::_LoadTalents(PreparedQueryResult result)
 {
-    // SetPQuery(PLAYER_LOGIN_QUERY_LOADTALENTS, "SELECT spell, spec FROM character_talent WHERE guid = '%u'", GUID_LOPART(m_guid));
+    // "SELECT talentId, talentGroup FROM character_talent WHERE guid = ?"
     if (result)
     {
         do
@@ -26910,8 +26926,8 @@ void Player::ValidateMovementInfo(MovementInfo* mi)
         in conjunction with any of the moving movement flags such as MOVEMENTFLAG_FORWARD.
         It will freeze clients that receive this player's movement info.
     */
-    REMOVE_VIOLATING_FLAGS(mi->HasMovementFlag(MOVEMENTFLAG_ROOT),
-        MOVEMENTFLAG_ROOT);
+    REMOVE_VIOLATING_FLAGS(mi->HasMovementFlag(MOVEMENTFLAG_ROOT) && mi->HasMovementFlag(MOVEMENTFLAG_MASK_MOVING),
+        MOVEMENTFLAG_MASK_MOVING);
 
     //! Cannot hover without SPELL_AURA_HOVER
     REMOVE_VIOLATING_FLAGS(mi->HasMovementFlag(MOVEMENTFLAG_HOVER) && !HasAuraType(SPELL_AURA_HOVER),
@@ -26937,8 +26953,10 @@ void Player::ValidateMovementInfo(MovementInfo* mi)
     REMOVE_VIOLATING_FLAGS(mi->HasMovementFlag(MOVEMENTFLAG_FORWARD) && mi->HasMovementFlag(MOVEMENTFLAG_BACKWARD),
         MOVEMENTFLAG_FORWARD | MOVEMENTFLAG_BACKWARD);
 
-    //! Cannot walk on water without SPELL_AURA_WATER_WALK
-    REMOVE_VIOLATING_FLAGS(mi->HasMovementFlag(MOVEMENTFLAG_WATERWALKING) && !HasAuraType(SPELL_AURA_WATER_WALK),
+    //! Cannot walk on water without SPELL_AURA_WATER_WALK except for ghosts
+    REMOVE_VIOLATING_FLAGS(mi->HasMovementFlag(MOVEMENTFLAG_WATERWALKING) &&
+        !HasAuraType(SPELL_AURA_WATER_WALK) &&
+        !HasAuraType(SPELL_AURA_GHOST),
         MOVEMENTFLAG_WATERWALKING);
 
     //! Cannot feather fall without SPELL_AURA_FEATHER_FALL

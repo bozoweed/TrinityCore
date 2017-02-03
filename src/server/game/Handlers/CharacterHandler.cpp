@@ -552,7 +552,7 @@ void WorldSession::HandleCharCreateOpcode(WorldPackets::Character::CreateCharact
 
         PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_SUM_CHARS);
         stmt->setUInt32(0, GetAccountId());
-        queryCallback.SetNextQuery(LoginDatabase.AsyncQuery(stmt));
+        queryCallback.SetNextQuery(CharacterDatabase.AsyncQuery(stmt));
     })
         .WithChainingPreparedCallback([this, createInfo](QueryCallback& queryCallback, PreparedQueryResult result)
     {
@@ -760,25 +760,6 @@ void WorldSession::HandleCharCreateOpcode(WorldPackets::Character::CreateCharact
             trans->Append(stmt);
 
             LoginDatabase.CommitTransaction(trans);
-
-            if (createInfo->TemplateSet)
-            {
-                if (HasPermission(rbac::RBAC_PERM_USE_CHARACTER_TEMPLATES))
-                {
-                    if (CharacterTemplate const* charTemplate = sObjectMgr->GetCharacterTemplate(*createInfo->TemplateSet))
-                    {
-                        if (charTemplate->Level != 1)
-                        {
-                            stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_LEVEL);
-                            stmt->setUInt8(0, uint8(charTemplate->Level));
-                            stmt->setUInt64(1, newChar.GetGUID().GetCounter());
-                            CharacterDatabase.Execute(stmt);
-                        }
-                    }
-                }
-                else
-                    TC_LOG_WARN("cheat", "Account: %u (IP: %s) tried to use a character template without given permission. Possible cheating attempt.", GetAccountId(), GetRemoteAddress().c_str());
-            }
 
             SendCharCreate(CHAR_CREATE_SUCCESS);
 
@@ -1572,6 +1553,13 @@ void WorldSession::HandleCharCustomizeCallback(std::shared_ptr<WorldPackets::Cha
         return;
     }
 
+    // prevent character rename
+    if (sWorld->getBoolConfig(CONFIG_PREVENT_RENAME_CUSTOMIZATION) && (customizeInfo->CharName != oldName))
+    {
+        SendCharCustomize(CHAR_NAME_FAILURE, customizeInfo.get());
+        return;
+    }
+
     atLoginFlags &= ~AT_LOGIN_CUSTOMIZE;
 
     // prevent character rename to invalid name
@@ -1830,6 +1818,7 @@ void WorldSession::HandleCharRaceOrFactionChangeCallback(std::shared_ptr<WorldPa
         return;
     }
 
+    std::string oldName = characterInfo->Name;
     uint8 oldRace     = characterInfo->Race;
     uint8 playerClass = characterInfo->Class;
     uint8 level       = characterInfo->Level;
@@ -1872,6 +1861,13 @@ void WorldSession::HandleCharRaceOrFactionChangeCallback(std::shared_ptr<WorldPa
             SendCharFactionChange(CHAR_CREATE_ERROR, factionChangeInfo.get());
             return;
         }
+    }
+
+    // prevent character rename
+    if (sWorld->getBoolConfig(CONFIG_PREVENT_RENAME_CUSTOMIZATION) && (factionChangeInfo->Name != oldName))
+    {
+        SendCharFactionChange(CHAR_NAME_FAILURE, factionChangeInfo.get());
+        return;
     }
 
     // prevent character rename to invalid name

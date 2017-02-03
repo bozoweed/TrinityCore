@@ -17,10 +17,10 @@
 
 #include "QueryCallback.h"
 
-template<typename T>
-inline void Construct(T& t)
+template<typename T, typename... Args>
+inline void Construct(T& t, Args&&... args)
 {
-    new (&t) T();
+    new (&t) T(std::forward<Args>(args)...);
 }
 
 template<typename T>
@@ -63,8 +63,8 @@ struct QueryCallback::QueryCallbackData
 public:
     friend class QueryCallback;
 
-    QueryCallbackData(std::function<void(QueryCallback&, QueryResult)>&& callback) : _string(std::move(callback)), _isPrepared(false) { TC_LOG_ERROR(LOGGER_ROOT, "QueryCallbackData [%p]: Constructing from string query", (void*)this); }
-    QueryCallbackData(std::function<void(QueryCallback&, PreparedQueryResult)>&& callback) : _prepared(std::move(callback)), _isPrepared(true) { TC_LOG_ERROR(LOGGER_ROOT, "QueryCallbackData [%p]: Constructing from prepared query", (void*)this); }
+    QueryCallbackData(std::function<void(QueryCallback&, QueryResult)>&& callback) : _string(std::move(callback)), _isPrepared(false) { }
+    QueryCallbackData(std::function<void(QueryCallback&, PreparedQueryResult)>&& callback) : _prepared(std::move(callback)), _isPrepared(true) { }
     QueryCallbackData(QueryCallbackData&& right)
     {
         _isPrepared = right._isPrepared;
@@ -103,12 +103,17 @@ private:
     bool _isPrepared;
 };
 
-QueryCallback::QueryCallback(std::future<QueryResult>&& result) : _string(std::move(result)), _isPrepared(false)
+// Not using initialization lists to work around segmentation faults when compiling with clang without precompiled headers
+QueryCallback::QueryCallback(std::future<QueryResult>&& result)
 {
+    _isPrepared = false;
+    Construct(_string, std::move(result));
 }
 
-QueryCallback::QueryCallback(std::future<PreparedQueryResult>&& result) : _prepared(std::move(result)), _isPrepared(true)
+QueryCallback::QueryCallback(std::future<PreparedQueryResult>&& result)
 {
+    _isPrepared = true;
+    Construct(_prepared, std::move(result));
 }
 
 QueryCallback::QueryCallback(QueryCallback&& right)
