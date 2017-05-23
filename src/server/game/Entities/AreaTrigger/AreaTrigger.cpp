@@ -16,6 +16,7 @@
  */
 
 #include "AreaTrigger.h"
+#include "AreaTriggerAI.h"
 #include "AreaTriggerDataStore.h"
 #include "AreaTriggerPackets.h"
 #include "AreaTriggerTemplate.h"
@@ -33,11 +34,12 @@
 #include "Transport.h"
 #include "Unit.h"
 #include "UpdateData.h"
+#include <G3D/AABox.h>
 
 AreaTrigger::AreaTrigger() : WorldObject(false), MapObject(),
     _duration(0), _totalDuration(0), _timeSinceCreated(0), _previousCheckOrientation(std::numeric_limits<float>::infinity()),
     _isRemoved(false), _reachedDestination(true), _lastSplineIndex(0), _movementTime(0),
-    _areaTriggerMiscTemplate(nullptr)
+    _areaTriggerMiscTemplate(nullptr), _ai()
 {
     m_objectType |= TYPEMASK_AREATRIGGER;
     m_objectTypeId = TYPEID_AREATRIGGER;
@@ -103,11 +105,15 @@ bool AreaTrigger::CreateAreaTrigger(uint32 spellMiscId, Unit* caster, Unit* targ
     SetGuidValue(AREATRIGGER_CREATING_EFFECT_GUID, castId);
 
     SetUInt32Value(AREATRIGGER_SPELLID, spell->Id);
+    SetUInt32Value(AREATRIGGER_SPELL_FOR_VISUALS, spell->Id);
     SetUInt32Value(AREATRIGGER_SPELL_X_SPELL_VISUAL_ID, spellXSpellVisualId);
-    uint32 timeToTarget = GetMiscTemplate()->TimeToTarget != 0 ? GetMiscTemplate()->TimeToTarget : GetUInt32Value(AREATRIGGER_DURATION);
     SetUInt32Value(AREATRIGGER_TIME_TO_TARGET_SCALE, GetMiscTemplate()->TimeToTargetScale != 0 ? GetMiscTemplate()->TimeToTargetScale : GetUInt32Value(AREATRIGGER_DURATION));
     SetFloatValue(AREATRIGGER_BOUNDS_RADIUS_2D, GetTemplate()->MaxSearchRadius);
     SetUInt32Value(AREATRIGGER_DECAL_PROPERTIES_ID, GetMiscTemplate()->DecalPropertiesId);
+
+    for (uint8 scaleCurveIndex = 0; scaleCurveIndex < MAX_AREATRIGGER_SCALE; ++scaleCurveIndex)
+        if (GetMiscTemplate()->ScaleInfo.ExtraScale[scaleCurveIndex].AsInt32)
+            SetUInt32Value(AREATRIGGER_EXTRA_SCALE_CURVE + scaleCurveIndex, GetMiscTemplate()->ScaleInfo.ExtraScale[scaleCurveIndex].AsInt32);
 
     CopyPhaseFrom(caster);
 
@@ -119,9 +125,10 @@ bool AreaTrigger::CreateAreaTrigger(uint32 spellMiscId, Unit* caster, Unit* targ
     UpdateShape();
 
     if (GetMiscTemplate()->HasSplines())
+    {
+        uint32 timeToTarget = GetMiscTemplate()->TimeToTarget != 0 ? GetMiscTemplate()->TimeToTarget : GetUInt32Value(AREATRIGGER_DURATION);
         InitSplineOffsets(GetMiscTemplate()->SplinePoints, timeToTarget);
-
-    sScriptMgr->OnAreaTriggerEntityInitialize(this);
+    }
 
     // movement on transport of areatriggers on unit is handled by themself
     Transport* transport = m_movementInfo.transport.guid.IsEmpty() ? caster->GetTransport() : nullptr;
@@ -136,6 +143,8 @@ bool AreaTrigger::CreateAreaTrigger(uint32 spellMiscId, Unit* caster, Unit* targ
         transport->AddPassenger(this);
     }
 
+    AI_Initialize();
+
     if (!GetMap()->AddToMap(this))
     {
         // Returning false will cause the object to be deleted - remove from transport
@@ -146,15 +155,15 @@ bool AreaTrigger::CreateAreaTrigger(uint32 spellMiscId, Unit* caster, Unit* targ
 
     caster->_RegisterAreaTrigger(this);
 
-    sScriptMgr->OnAreaTriggerEntityCreate(this);
+    _ai->OnCreate();
 
     return true;
 }
 
-void AreaTrigger::Update(uint32 p_time)
+void AreaTrigger::Update(uint32 diff)
 {
-    WorldObject::Update(p_time);
-    _timeSinceCreated += p_time;
+    WorldObject::Update(diff);
+    _timeSinceCreated += diff;
 
     if (GetTemplate()->HasFlag(AREATRIGGER_FLAG_HAS_ATTACHED))
     {
@@ -162,20 +171,20 @@ void AreaTrigger::Update(uint32 p_time)
             GetMap()->AreaTriggerRelocation(this, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), target->GetOrientation());
     }
     else
-        UpdateSplinePosition(p_time);
-
-    sScriptMgr->OnAreaTriggerEntityUpdate(this, p_time);
+        UpdateSplinePosition(diff);
 
     if (GetDuration() != -1)
     {
-        if (GetDuration() > int32(p_time))
-            _UpdateDuration(_duration - p_time);
+        if (GetDuration() > int32(diff))
+            _UpdateDuration(_duration - diff);
         else
         {
             Remove(); // expired
             return;
         }
     }
+
+    _ai->OnUpdate(diff);
 
     UpdateTargetList();
 }
@@ -192,10 +201,9 @@ void AreaTrigger::Remove()
         // Handle removal of all units, calling OnUnitExit & deleting auras if needed
         HandleUnitEnterExit({});
 
-        sScriptMgr->OnAreaTriggerEntityRemove(this);
+        _ai->OnRemove();
 
-        RemoveFromWorld();
-        AddObjectToRemoveList();
+        AddObjectToRemoveList(); // calls RemoveFromWorld
     }
 }
 
@@ -261,7 +269,7 @@ void AreaTrigger::SearchUnitInSphere(std::list<Unit*>& targetList)
 
     Trinity::AnyUnitInObjectRangeCheck check(this, radius);
     Trinity::UnitListSearcher<Trinity::AnyUnitInObjectRangeCheck> searcher(this, targetList, check);
-    VisitNearbyObject(GetTemplate()->MaxSearchRadius, searcher);
+    Cell::VisitAllObjects(this, searcher, GetTemplate()->MaxSearchRadius);
 }
 
 void AreaTrigger::SearchUnitInBox(std::list<Unit*>& targetList)
@@ -272,7 +280,7 @@ void AreaTrigger::SearchUnitInBox(std::list<Unit*>& targetList)
 
     Trinity::AnyUnitInObjectRangeCheck check(this, GetTemplate()->MaxSearchRadius, false);
     Trinity::UnitListSearcher<Trinity::AnyUnitInObjectRangeCheck> searcher(this, targetList, check);
-    VisitNearbyObject(GetTemplate()->MaxSearchRadius, searcher);
+    Cell::VisitAllObjects(this, searcher, GetTemplate()->MaxSearchRadius);
 
     float halfExtentsX = extentsX / 2.0f;
     float halfExtentsY = extentsY / 2.0f;
@@ -299,7 +307,7 @@ void AreaTrigger::SearchUnitInPolygon(std::list<Unit*>& targetList)
 {
     Trinity::AnyUnitInObjectRangeCheck check(this, GetTemplate()->MaxSearchRadius, false);
     Trinity::UnitListSearcher<Trinity::AnyUnitInObjectRangeCheck> searcher(this, targetList, check);
-    VisitNearbyObject(GetTemplate()->MaxSearchRadius, searcher);
+    Cell::VisitAllObjects(this, searcher, GetTemplate()->MaxSearchRadius);
 
     float height = GetTemplate()->PolygonDatas.Height;
     float minZ = GetPositionZ() - height;
@@ -317,7 +325,7 @@ void AreaTrigger::SearchUnitInCylinder(std::list<Unit*>& targetList)
 {
     Trinity::AnyUnitInObjectRangeCheck check(this, GetTemplate()->MaxSearchRadius, false);
     Trinity::UnitListSearcher<Trinity::AnyUnitInObjectRangeCheck> searcher(this, targetList, check);
-    VisitNearbyObject(GetTemplate()->MaxSearchRadius, searcher);
+    Cell::VisitAllObjects(this, searcher, GetTemplate()->MaxSearchRadius);
 
     float height = GetTemplate()->CylinderDatas.Height;
     float minZ = GetPositionZ() - height;
@@ -353,7 +361,8 @@ void AreaTrigger::HandleUnitEnterExit(std::list<Unit*> const& newTargetList)
                 ChatHandler(player->GetSession()).PSendSysMessage(LANG_DEBUG_AREATRIGGER_ENTERED, GetTemplate()->Id);
 
         DoActions(unit);
-        sScriptMgr->OnAreaTriggerEntityUnitEnter(this, unit);
+
+        _ai->OnUnitEnter(unit);
     }
 
     for (ObjectGuid const& exitUnitGuid : exitUnits)
@@ -365,7 +374,8 @@ void AreaTrigger::HandleUnitEnterExit(std::list<Unit*> const& newTargetList)
                     ChatHandler(player->GetSession()).PSendSysMessage(LANG_DEBUG_AREATRIGGER_LEFT, GetTemplate()->Id);
 
             UndoActions(leavingUnit);
-            sScriptMgr->OnAreaTriggerEntityUnitExit(this, leavingUnit);
+
+            _ai->OnUnitExit(leavingUnit);
         }
     }
 }
@@ -422,29 +432,28 @@ bool AreaTrigger::CheckIsInPolygon2D(Position const* pos) const
     float testY = pos->GetPositionY();
 
     //this method uses the ray tracing algorithm to determine if the point is in the polygon
-    int nPoints = _polygonVertices.size();
     bool locatedInPolygon = false;
 
-    for (int i = 0; i < nPoints; ++i)
+    for (std::size_t vertex = 0; vertex < _polygonVertices.size(); ++vertex)
     {
-        int j = -999;
+        std::size_t nextVertex;
 
         //repeat loop for all sets of points
-        if (i == (nPoints - 1))
+        if (vertex == (_polygonVertices.size() - 1))
         {
             //if i is the last vertex, let j be the first vertex
-            j = 0;
+            nextVertex = 0;
         }
         else
         {
             //for all-else, let j=(i+1)th vertex
-            j = i + 1;
+            nextVertex = vertex + 1;
         }
 
-        float vertX_i = GetPositionX() + _polygonVertices[i].x;
-        float vertY_i = GetPositionY() + _polygonVertices[i].y;
-        float vertX_j = GetPositionX() + _polygonVertices[j].x;
-        float vertY_j = GetPositionY() + _polygonVertices[j].y;
+        float vertX_i = GetPositionX() + _polygonVertices[vertex].x;
+        float vertY_i = GetPositionY() + _polygonVertices[vertex].y;
+        float vertX_j = GetPositionX() + _polygonVertices[nextVertex].x;
+        float vertY_j = GetPositionY() + _polygonVertices[nextVertex].y;
 
         // following statement checks if testPoint.Y is below Y-coord of i-th vertex
         bool belowLowY = vertY_i > testY;
@@ -605,7 +614,9 @@ void AreaTrigger::InitSplines(std::vector<G3D::Vector3> const& splinePoints, uin
         reshape.AreaTriggerSpline = boost::in_place();
         reshape.AreaTriggerSpline->ElapsedTimeForMovement = GetElapsedTimeForMovement();
         reshape.AreaTriggerSpline->TimeToTarget = timeToTarget;
-        reshape.AreaTriggerSpline->Points = splinePoints;
+        for (G3D::Vector3 const& vec : splinePoints)
+            reshape.AreaTriggerSpline->Points.emplace_back(vec.x, vec.y, vec.z);
+
         SendMessageToSet(reshape.Write(), true);
     }
 
@@ -633,8 +644,8 @@ void AreaTrigger::UpdateSplinePosition(uint32 diff)
         DebugVisualizePosition();
 #endif
 
-        sScriptMgr->OnAreaTriggerEntitySplineIndexReached(this, _lastSplineIndex);
-        sScriptMgr->OnAreaTriggerEntityDestinationReached(this);
+        _ai->OnSplineIndexReached(_lastSplineIndex);
+        _ai->OnDestinationReached();
         return;
     }
 
@@ -677,7 +688,7 @@ void AreaTrigger::UpdateSplinePosition(uint32 diff)
     if (_lastSplineIndex != lastPositionIndex)
     {
         _lastSplineIndex = lastPositionIndex;
-        sScriptMgr->OnAreaTriggerEntitySplineIndexReached(this, _lastSplineIndex);
+        _ai->OnSplineIndexReached(_lastSplineIndex);
     }
 }
 
@@ -687,4 +698,20 @@ void AreaTrigger::DebugVisualizePosition()
         if (Player* player = caster->ToPlayer())
             if (player->isDebugAreaTriggers)
                 player->SummonCreature(1, *this, TEMPSUMMON_TIMED_DESPAWN, GetTimeToTarget());
+}
+
+void AreaTrigger::AI_Initialize()
+{
+    AI_Destroy();
+    AreaTriggerAI* ai = sScriptMgr->GetAreaTriggerAI(this);
+    if (!ai)
+        ai = new NullAreaTriggerAI(this);
+
+    _ai.reset(ai);
+    _ai->OnInitialize();
+}
+
+void AreaTrigger::AI_Destroy()
+{
+    _ai.reset();
 }

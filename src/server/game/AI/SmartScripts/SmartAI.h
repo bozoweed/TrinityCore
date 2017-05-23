@@ -18,15 +18,13 @@
 #ifndef TRINITY_SMARTAI_H
 #define TRINITY_SMARTAI_H
 
-#include "Common.h"
-#include "Creature.h"
+#include "Define.h"
 #include "CreatureAI.h"
-#include "Unit.h"
-#include "Spell.h"
-
-#include "SmartScript.h"
-#include "SmartScriptMgr.h"
 #include "GameObjectAI.h"
+#include "Position.h"
+#include "SmartScript.h"
+
+struct WayPoint;
 
 enum SmartEscortState
 {
@@ -47,6 +45,9 @@ class TC_GAME_API SmartAI : public CreatureAI
     public:
         ~SmartAI(){ }
         explicit SmartAI(Creature* c);
+
+        // Check whether we are currently permitted to make the creature take action
+        bool IsAIControlled() const;
 
         // Start moving to the desired MovePoint
         void StartPath(bool run = false, uint32 path = 0, bool repeat = false, Unit* invoker = nullptr);
@@ -129,9 +130,6 @@ class TC_GAME_API SmartAI : public CreatureAI
         // called when the corpse of this creature gets removed
         void CorpseRemoved(uint32& respawnDelay) override;
 
-        // Called at World update tick if creature is charmed
-        void UpdateAIWhileCharmed(const uint32 diff);
-
         // Called when a Player/Creature enters the creature (vehicle)
         void PassengerBoarded(Unit* who, int8 seatId, bool apply) override;
 
@@ -197,6 +195,7 @@ class TC_GAME_API SmartAI : public CreatureAI
         void OnSpellClick(Unit* clicker, bool& result) override;
 
     private:
+        bool mIsCharmed;
         uint32 mFollowCreditType;
         uint32 mFollowArrivedTimer;
         uint32 mFollowCredit;

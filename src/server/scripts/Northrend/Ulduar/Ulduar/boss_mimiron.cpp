@@ -658,6 +658,9 @@ class boss_mimiron : public CreatureScript
                         default:
                             break;
                     }
+
+                    if (me->HasUnitState(UNIT_STATE_CASTING))
+                        return;
                 }
             }
 
@@ -896,6 +899,9 @@ class boss_leviathan_mk_ii : public CreatureScript
                         default:
                             break;
                     }
+
+                    if (me->HasUnitState(UNIT_STATE_CASTING))
+                        return;
                 }
                 DoMeleeAttackIfReady();
             }
@@ -1034,7 +1040,8 @@ class boss_vx_001 : public CreatureScript
                 // Handle rotation during SPELL_SPINNING_UP, SPELL_P3WX2_LASER_BARRAGE, SPELL_RAPID_BURST, and SPELL_HAND_PULSE_LEFT/RIGHT
                 if (me->HasUnitState(UNIT_STATE_CASTING))
                 {
-                    if (Creature* channelTarget = ObjectAccessor::GetCreature(*me, me->GetChannelObjectGuid()))
+                    DynamicFieldStructuredView<ObjectGuid> channelObjects = me->GetChannelObjects();
+                    if (Unit* channelTarget = (channelObjects.size() == 1 ? ObjectAccessor::GetUnit(*me, *channelObjects.begin()) : nullptr))
                         me->SetFacingToObject(channelTarget);
                     return;
                 }
@@ -1079,6 +1086,9 @@ class boss_vx_001 : public CreatureScript
                         default:
                             break;
                     }
+
+                    if (me->HasUnitState(UNIT_STATE_CASTING))
+                        return;
                 }
             }
 
@@ -1237,6 +1247,9 @@ class boss_aerial_command_unit : public CreatureScript
                         default:
                             break;
                     }
+
+                    if (me->HasUnitState(UNIT_STATE_CASTING))
+                        return;
                 }
                 DoSpellAttackIfReady(events.IsInPhase(PHASE_AERIAL_COMMAND_UNIT) ? SPELL_PLASMA_BALL_P1 : SPELL_PLASMA_BALL_P2);
             }
@@ -1951,33 +1964,6 @@ class spell_mimiron_napalm_shell : public SpellScriptLoader
         }
 };
 
-// 63274 - P3Wx2 Laser Barrage -- HACK! Core will currently not set UNIT_FIELD_CHANNEL_OBJECT automatially if the spell targets more than a single target.
-class spell_mimiron_p3wx2_laser_barrage : public SpellScriptLoader
-{
-    public:
-        spell_mimiron_p3wx2_laser_barrage() : SpellScriptLoader("spell_mimiron_p3wx2_laser_barrage") { }
-
-        class spell_mimiron_p3wx2_laser_barrage_SpellScript : public SpellScript
-        {
-            PrepareSpellScript(spell_mimiron_p3wx2_laser_barrage_SpellScript);
-
-            void OnHit(SpellEffIndex /*effIndex*/)
-            {
-                GetCaster()->SetChannelObjectGuid(GetHitUnit()->GetGUID());
-            }
-
-            void Register() override
-            {
-                OnEffectHitTarget += SpellEffectFn(spell_mimiron_p3wx2_laser_barrage_SpellScript::OnHit, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
-            }
-        };
-
-        SpellScript* GetSpellScript() const override
-        {
-            return new spell_mimiron_p3wx2_laser_barrage_SpellScript();
-        }
-};
-
 // 64542 - Plasma Blast
 class spell_mimiron_plasma_blast : public SpellScriptLoader
 {
@@ -2350,35 +2336,6 @@ class spell_mimiron_self_repair : public SpellScriptLoader
         SpellScript* GetSpellScript() const override
         {
             return new spell_mimiron_self_repair_SpellScript();
-        }
-};
-
-// 63414 - Spinning Up -- HACK! Core will currently not set UNIT_FIELD_CHANNEL_OBJECT automatially if the spell targets more than a single target.
-// eff0 will hit both caster and target due to hack in spellmgr.cpp, it is necessary because caster will interrupt itself if aura is not active on caster.
-class spell_mimiron_spinning_up : public SpellScriptLoader
-{
-    public:
-        spell_mimiron_spinning_up() : SpellScriptLoader("spell_mimiron_spinning_up") { }
-
-        class spell_mimiron_spinning_up_SpellScript : public SpellScript
-        {
-            PrepareSpellScript(spell_mimiron_spinning_up_SpellScript);
-
-            void OnHit(SpellEffIndex /*effIndex*/)
-            {
-                if (GetHitUnit() != GetCaster())
-                    GetCaster()->SetChannelObjectGuid(GetHitUnit()->GetGUID());
-            }
-
-            void Register() override
-            {
-                OnEffectHitTarget += SpellEffectFn(spell_mimiron_spinning_up_SpellScript::OnHit, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
-            }
-        };
-
-        SpellScript* GetSpellScript() const override
-        {
-            return new spell_mimiron_spinning_up_SpellScript();
         }
 };
 
@@ -2820,7 +2777,6 @@ void AddSC_boss_mimiron()
     new spell_mimiron_fire_search();
     new spell_mimiron_magnetic_core();
     new spell_mimiron_napalm_shell();
-    new spell_mimiron_p3wx2_laser_barrage();
     new spell_mimiron_plasma_blast();
     new spell_mimiron_proximity_explosion();
     new spell_mimiron_proximity_mines();
@@ -2830,7 +2786,6 @@ void AddSC_boss_mimiron()
     new spell_mimiron_rocket_strike_damage();
     new spell_mimiron_rocket_strike_target_select();
     new spell_mimiron_self_repair();
-    new spell_mimiron_spinning_up();
     new spell_mimiron_summon_assault_bot();
     new spell_mimiron_summon_assault_bot_target();
     new spell_mimiron_summon_fire_bot();

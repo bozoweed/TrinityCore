@@ -18,11 +18,17 @@
 #ifndef TRINITYCORE_AREATRIGGER_TEMPLATE_H
 #define TRINITYCORE_AREATRIGGER_TEMPLATE_H
 
-#include <G3D/Vector3.h>
-
 #include "Define.h"
+#include <vector>
+
+namespace G3D
+{
+    class Vector2;
+    class Vector3;
+}
 
 #define MAX_AREATRIGGER_ENTITY_DATA 6
+#define MAX_AREATRIGGER_SCALE 7
 
 enum AreaTriggerFlags
 {
@@ -74,18 +80,28 @@ struct AreaTriggerAction
     AreaTriggerActionUserTypes TargetType;
 };
 
+struct AreaTriggerScaleInfo
+{
+    AreaTriggerScaleInfo();
+
+    union
+    {
+        int32 AsInt32;
+        float AsFloat;
+    } OverrideScale[MAX_AREATRIGGER_SCALE];
+
+    union
+    {
+        int32 AsInt32;
+        float AsFloat;
+    } ExtraScale[MAX_AREATRIGGER_SCALE];
+};
+
 class AreaTriggerTemplate
 {
 public:
-    AreaTriggerTemplate()
-    {
-        Id                  = 0;
-        Flags               = 0;
-        ScriptId            = 0;
-        MaxSearchRadius     = 0.0f;
-
-        memset(DefaultDatas.Data, 0, sizeof(DefaultDatas.Data));
-    }
+    AreaTriggerTemplate();
+    ~AreaTriggerTemplate();
 
     bool HasFlag(uint32 flag) const { return (Flags & flag) != 0; }
 
@@ -149,25 +165,10 @@ public:
 class AreaTriggerMiscTemplate
 {
 public:
-    AreaTriggerMiscTemplate()
-    {
-        MiscId              = 0;
-        AreaTriggerEntry    = 0;
+    AreaTriggerMiscTemplate();
+    ~AreaTriggerMiscTemplate();
 
-        MoveCurveId         = 0;
-        ScaleCurveId        = 0;
-        MorphCurveId        = 0;
-        FacingCurveId       = 0;
-
-        DecalPropertiesId   = 0;
-
-        TimeToTarget        = 0;
-        TimeToTargetScale   = 0;
-
-        Template            = nullptr;
-    }
-
-    bool HasSplines()   const { return SplinePoints.size() >= 2; }
+    bool HasSplines()   const;
 
     uint32 MiscId;
     uint32 AreaTriggerEntry;
@@ -181,6 +182,8 @@ public:
 
     uint32 TimeToTarget;
     uint32 TimeToTargetScale;
+
+    AreaTriggerScaleInfo ScaleInfo;
 
     AreaTriggerTemplate const* Template;
     std::vector<G3D::Vector3> SplinePoints;

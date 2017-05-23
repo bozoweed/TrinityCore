@@ -21,15 +21,16 @@
 
 #include "Common.h"
 #include "SharedDefines.h"
-#include "Unit.h"
 #include "Object.h"
-#include "LootMgr.h"
-#include "DatabaseEnv.h"
+#include "Loot.h"
+#include "DatabaseEnvFwd.h"
+#include "MapObject.h"
 #include <G3D/Quat.h>
 
 class GameObjectAI;
 class Group;
 class Transport;
+enum TriggerCastFlags : uint32;
 
 // from `gameobject_template`
 struct GameObjectTemplate
@@ -865,9 +866,9 @@ union GameObjectValue
 
 struct GameObjectLocale
 {
-    StringVector Name;
-    StringVector CastBarCaption;
-    StringVector Unk1;
+    std::vector<std::string> Name;
+    std::vector<std::string> CastBarCaption;
+    std::vector<std::string> Unk1;
 };
 
 // `gameobject_addon` table
@@ -879,19 +880,6 @@ struct GameObjectAddon
 };
 
 typedef std::unordered_map<ObjectGuid::LowType, GameObjectAddon> GameObjectAddonContainer;
-
-// client side GO show states
-enum GOState
-{
-    GO_STATE_ACTIVE             = 0,                        // show in world as used and not reset (closed door open)
-    GO_STATE_READY              = 1,                        // show in world as ready (closed door close)
-    GO_STATE_ACTIVE_ALTERNATIVE = 2,                        // show in world as used in alt way and not reset (closed door open by cannon fire)
-    GO_STATE_TRANSPORT_ACTIVE   = 24,
-    GO_STATE_TRANSPORT_STOPPED  = 25
-};
-
-#define MAX_GO_STATE              3
-#define MAX_GO_STATE_TRANSPORT_STOP_FRAMES 9
 
 // from `gameobject`
 struct GameObjectData
@@ -913,6 +901,7 @@ struct GameObjectData
     uint8 artKit;
     uint32 phaseid;
     uint32 phaseGroup;
+    uint32 ScriptId;
     bool dbData;
 };
 
@@ -965,6 +954,7 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
          // z_rot, y_rot, x_rot - rotation angles around z, y and x axes
         void SetWorldRotationAngles(float z_rot, float y_rot, float x_rot);
         void SetWorldRotation(G3D::Quat const& rot);
+        G3D::Quat const& GetWorldRotation() const { return m_worldRotation; }
         void SetParentRotation(G3D::Quat const& rotation);      // transforms(rotates) transport's path
         int64 GetPackedWorldRotation() const { return m_packedRotation; }
 
@@ -1039,7 +1029,6 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
         void SetGoAnimProgress(uint8 animprogress) { SetByteValue(GAMEOBJECT_BYTES_1, 3, animprogress); }
         static void SetGoArtKit(uint8 artkit, GameObject* go, ObjectGuid::LowType lowguid = UI64LIT(0));
 
-        bool SetInPhase(uint32 id, bool update, bool apply) override;
         void EnableCollision(bool enable);
 
         void Use(Unit* user);
@@ -1074,7 +1063,7 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
 
         Player* GetLootRecipient() const;
         Group* GetLootRecipientGroup() const;
-        void SetLootRecipient(Unit* unit);
+        void SetLootRecipient(Unit* unit, Group* group = nullptr);
         bool IsLootAllowedFor(Player const* player) const;
         bool HasLootRecipient() const { return !m_lootRecipient.IsEmpty() || !m_lootRecipientGroup.IsEmpty(); }
         uint32 m_groupLootTimer;                            // (msecs)timer used for group loot
@@ -1089,18 +1078,11 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
 
         void TriggeringLinkedGameObject(uint32 trapEntry, Unit* target);
 
-        bool IsNeverVisible() const override;
-
+        bool IsNeverVisibleFor(WorldObject const* seer) const override;
         bool IsAlwaysVisibleFor(WorldObject const* seer) const override;
         bool IsInvisibleDueToDespawn() const override;
 
-        uint8 getLevelForTarget(WorldObject const* target) const override
-        {
-            if (Unit* owner = GetOwner())
-                return owner->getLevelForTarget(target);
-
-            return 1;
-        }
+        uint8 getLevelForTarget(WorldObject const* target) const override;
 
         GameObject* LookupFishingHoleAround(float range);
 
@@ -1123,7 +1105,7 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
 
         void EventInform(uint32 eventId, WorldObject* invoker = NULL);
 
-        virtual uint32 GetScriptId() const { return GetGOInfo()->ScriptId; }
+        virtual uint32 GetScriptId() const;
         GameObjectAI* AI() const { return m_AI; }
 
         std::string GetAIName() const;
@@ -1166,6 +1148,8 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
         bool        m_spawnedByDefault;
         time_t      m_cooldownTime;                         // used as internal reaction delay time store (not state change reaction).
                                                             // For traps this: spell casting cooldown, for doors/buttons: reset time.
+        GOState     m_prevGoState;                          // What state to set whenever resetting
+
         GuidSet m_SkillupList;
 
         ObjectGuid m_ritualOwnerGUID;                       // used for GAMEOBJECT_TYPE_RITUAL where GO is not summoned (no owner)

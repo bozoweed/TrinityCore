@@ -22,6 +22,7 @@
 // For static or at-server-startup loaded spell data
 
 #include "Define.h"
+#include "Duration.h"
 #include "SharedDefines.h"
 #include "Util.h"
 
@@ -552,7 +553,7 @@ struct SpellLearnSkillNode
     uint16 maxvalue;                                        // 0  - max skill value for player level
 };
 
-typedef std::map<uint32, SpellLearnSkillNode> SpellLearnSkillMap;
+typedef std::unordered_map<uint32, SpellLearnSkillNode> SpellLearnSkillMap;
 
 struct SpellLearnSpellNode
 {
