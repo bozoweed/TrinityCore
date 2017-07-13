@@ -331,9 +331,9 @@ void QuestMenu::ClearMenu()
     _questMenuItems.clear();
 }
 
-void PlayerMenu::SendQuestGiverQuestList(ObjectGuid guid)
+void PlayerMenu::SendQuestGiverQuestListMessage(ObjectGuid guid)
 {
-    WorldPackets::Quest::QuestGiverQuestList questList;
+    WorldPackets::Quest::QuestGiverQuestListMessage questList;
     questList.QuestGiverGUID = guid;
 
     if  (QuestGreeting const* questGreeting = sObjectMgr->GetQuestGreeting(guid))
@@ -368,7 +368,7 @@ void PlayerMenu::SendQuestGiverQuestList(ObjectGuid guid)
 
             bool repeatable = false; // NYI
 
-            questList.GossipTexts.emplace_back(questID, questMenuItem.QuestIcon, quest->GetQuestLevel(), quest->GetFlags(), quest->GetFlagsEx(), repeatable, title);
+            questList.QuestDataText.emplace_back(questID, questMenuItem.QuestIcon, quest->GetQuestLevel(), quest->GetFlags(), quest->GetFlagsEx(), repeatable, title);
         }
     }
 
@@ -703,7 +703,10 @@ void PlayerMenu::SendQuestGiverRequestItems(Quest const* quest, ObjectGuid npcGU
     packet.QuestFlags[0] = quest->GetFlags();
     packet.QuestFlags[1] = quest->GetFlagsEx();
     packet.SuggestPartyMembers = quest->GetSuggestedPlayers();
-    packet.StatusFlags = 0xDF; // Unk, send common value
+
+    // incomplete: FD
+    // incomplete quest with item objective but item objective is complete DD
+    packet.StatusFlags = canComplete ? 0xFF : 0xFD;
 
     packet.MoneyToGet = 0;
     for (QuestObjective const& obj : quest->GetObjectives())
